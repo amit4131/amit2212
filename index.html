@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BioHack Fit – MVP</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121823; --muted:#6b7a90; --text:#eaf2ff; --acc:#51b4ff; --ok:#45d483; --warn:#ffcc66; --bad:#ff6b6b;
+  }
+  body[data-theme="light"]{
+    --bg:#f6f8fb; --panel:#ffffff; --muted:#6a7b8e; --text:#0c1622; --acc:#175fe6; --ok:#1f8f4d; --warn:#b38219; --bad:#c23737;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,var(--bg),var(--bg) 60%,#0f1520);color:var(--text);font:16px/1.4 system-ui,Segoe UI,Roboto,Helvetica,Arial}
+  header{position:sticky;top:0;z-index:5;background:#0b0f1499;backdrop-filter:blur(8px);border-bottom:1px solid #1e2a3a}
+  .wrap{max-width:980px;margin:0 auto;padding:16px}
+  h1{margin:6px 0 10px;font-size:22px;letter-spacing:.3px}
+  .tabs{display:flex;gap:8px;flex-wrap:wrap}
+  .tab{padding:10px 14px;border:1px solid #223145;border-radius:999px;background:#121823;cursor:pointer;user-select:none}
+  body[data-theme="light"] .tab{background:#eef3ff;border-color:#d6e0f2}
+  .tab.active{background:linear-gradient(180deg,#162233,#121823);border-color:#2a3a55;outline:2px solid #2d80ff22}
+  body[data-theme="light"] .tab.active{background:#dce8ff;outline:2px solid #6da3ff55}
+  main{padding:16px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+  .card{background:linear-gradient(180deg,#121823,#0f1623);border:1px solid #213045;border-radius:16px;padding:16px;box-shadow:0 10px 20px #0006}
+  body[data-theme="light"] .card{background:#fff;border-color:#e7eefb;box-shadow:0 8px 18px #0001}
+  .card h3{margin:0 0 12px;font-size:18px}
+  .muted{color:var(--muted);font-size:13px}
+  label{display:block;margin:10px 0 6px}
+  input,select,textarea{width:100%;padding:10px 12px;border-radius:12px;border:1px solid #223145;background:#0f1623;color:var(--text)}
+  body[data-theme="light"] input, body[data-theme="light"] select, body[data-theme="light"] textarea{background:#f3f7ff;border-color:#d6e0f2}
+  input[type="number"]{appearance:textfield}
+  button{cursor:pointer;border:1px solid #23405c;background:linear-gradient(180deg,#18314a,#13273c);color:var(--text);padding:10px 14px;border-radius:12px}
+  body[data-theme="light"] button{background:#f0f6ff;border-color:#cfe0ff}
+  button.primary{border-color:#1c5aa0;background:linear-gradient(180deg,#2a6ac0,#1b4f93)}
+  .kpi{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border-radius:12px;border:1px solid #223145;background:#0f1623}
+  body[data-theme="light"] .kpi{background:#f3f7ff;border-color:#d6e0f2}
+  .kpi b{font-size:20px}
+  .tags{display:flex;gap:6px;flex-wrap:wrap}
+  .tag{padding:4px 8px;border-radius:999px;font-size:12px;border:1px solid #23374f;background:#0b1018}
+  body[data-theme="light"] .tag{background:#eef3ff;border-color:#d6e0f2}
+  .tag.ok{border-color:#1b6a42;color:#9ff2c3}
+  .tag.warn{border-color:#6a5a1b;color:#ffe39a}
+  .tag.bad{border-color:#6a1b1b;color:#ffacac}
+  .list{display:grid;gap:8px;max-height:260px;overflow:auto}
+  .row{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:10px;border:1px solid #223145;border-radius:12px;background:#0f1623}
+  body[data-theme="light"] .row{background:#f8fbff;border-color:#d6e0f2}
+  .row small{color:var(--muted)}
+  .pill{padding:2px 8px;border-radius:999px;border:1px solid #2a3a55}
+  .right{float:inline-end}
+  .foot{margin-top:12px;color:var(--muted);font-size:12px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  progress{width:100%}
+  details.test{border:1px dashed #2a3a55;border-radius:12px;padding:8px 12px}
+</style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>BioHack Fit – גרסת דפדפן / CODEX</h1>
+      <div class="tabs" id="tabs"></div>
+    </div>
+  </header>
+  <main class="wrap">
+    <section id="view"></section>
+  </main>
+<script>
+// ===== Feature flags / Environment =====
+// בסביבת CODEX/Web‑sandbox אי אפשר לרשום Service Worker מ‑blob:
+// לכן אנו מבטלים רישום SW אוטומטי ומציגים סטטוס ברור במסך "סנכרון".
+const SW_ENABLED = false; // שנה ל‑true רק כאשר יש קובץ sw.js תקין על HTTPS באותה מחיצה.
+
+// ===== Utilities & Storage =====
+const $ = (sel, el=document) => el.querySelector(sel);
+const $$ = (sel, el=document) => [...el.querySelectorAll(sel)];
+const db = {
+  read(){ try{ return JSON.parse(localStorage.getItem('bhfit')||'{}'); }catch(e){return {}} },
+  write(v){ localStorage.setItem('bhfit', JSON.stringify(v)); },
+  patch(p){ const v = db.read(); const nv = {...v, ...p}; db.write(nv); return nv; }
+};
+const state = db.read();
+if(!state.metrics){ state.metrics = { bodyMassKg: 70, hrvMs: 40, rhr: 62, sleepMin: 420, steps: 6000, vo2: 38, baseline:{hrvMs:45,rhr:60} }; }
+if(!state.workouts){ state.workouts=[]; }
+if(!state.fast){ state.fast = { active:false, start:null, targetHours:16 }; }
+if(!state.nutrition){ state.nutrition = { proteinPerKg: 1.6, lastIntake: [] }; }
+if(!state.goals){ state.goals = { weeklyMinutes: 150, strengthDays: 2, vigorousMinutes: 75 }; }
+if(!state.ui){ state.ui = { theme:'dark' }; }
+// apply saved theme
+try{ document.body.dataset.theme = state.ui.theme || 'dark'; }catch{}
+db.write(state);
+
+// ===== Tabs =====
+const routes = [
+  {id:'dash', name:'דשבורד'},
+  {id:'train', name:'אימונים'},
+  {id:'recovery', name:'התאוששות'},
+  {id:'nutrition', name:'תזונה/חלבון'},
+  {id:'fast', name:'צום (IF)'},
+  {id:'export', name:'גיבוי/ייבוא'},
+  {id:'settings', name:'התאמה אישית'},
+  {id:'sync', name:'סנכרון לטלפון'}
+];
+
+function renderTabs(active='dash'){
+  const tabs = $('#tabs');
+  tabs.innerHTML = '';
+  routes.forEach(r=>{
+    const b = document.createElement('button');
+    b.className = 'tab'+(r.id===active?' active':'');
+    b.textContent = r.name;
+    b.onclick = ()=>{ renderTabs(r.id); route(r.id); };
+    tabs.appendChild(b);
+  });
+}
+
+// ===== Scores & Helpers =====
+function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
+function readinessScore(t, base){
+  const zHrv = (t.hrvMs - base.hrvMs) / Math.max(10, base.hrvMs*0.2);
+  const zRhr = (base.rhr - t.rhr) / Math.max(3, base.rhr*0.1);
+  let score = 50 + 25*zHrv + 25*zRhr;
+  return clamp(Math.round(score),0,100);
+}
+function hrZone2(rhr){ // crude MAF-like estimate
+  const estMax = 208 - 0.7*30; // assume גיל 30 ברירת מחדל
+  const low = Math.round(rhr + 0.55*(estMax-rhr));
+  const high= Math.round(rhr + 0.7*(estMax-rhr));
+  return `${low}-${high} bpm`;
+}
+function fmtMin(m){ const h=Math.floor(m/60), mm=m%60; return h?`${h}ש ${mm}ד`:`${mm}ד`; }
+function isThisWeek(iso){
+  const d=new Date(iso), now=new Date();
+  const day = (dt)=>{const t=new Date(dt); t.setHours(0,0,0,0); return t;};
+  const monday=(dt)=>{const t=day(dt); const w=(t.getDay()+6)%7; t.setDate(t.getDate()-w); return t;}
+  const start=monday(now), end=new Date(monday(now)); end.setDate(start.getDate()+7);
+  return d>=start && d<end;
+}
+function canRegisterSW(){
+  // נרצה true רק כאשר יש תמיכה, HTTPS וקובץ sw.js נגיש, ובנוסף SW_ENABLED=true
+  const httpsOK = location.protocol === 'https:' || location.hostname === 'localhost';
+  return !!(SW_ENABLED && 'serviceWorker' in navigator && httpsOK);
+}
+
+// ===== Views =====
+function viewDash(){
+  const m = state.metrics; const rdy = readinessScore(m, m.baseline);
+  const doneMin = state.workouts.filter(w=>isThisWeek(w.date)).reduce((s,w)=>s+(+w.duration||0),0);
+  const goal = state.goals.weeklyMinutes;
+  const pct = clamp(Math.round((doneMin/goal)*100),0,100);
+  return `
+  <div class="grid">
+    <div class="card">
+      <h3>מדדי היום</h3>
+      <div class="grid">
+        <div class="kpi"><div>HRV (SDNN)</div><b>${m.hrvMs} מ"ש</b></div>
+        <div class="kpi"><div>דופק מנוחה</div><b>${m.rhr} bpm</b></div>
+        <div class="kpi"><div>שינה</div><b>${fmtMin(m.sleepMin)}</b></div>
+        <div class="kpi"><div>צעדים</div><b>${m.steps.toLocaleString()}</b></div>
+      </div>
+      <div class="foot">ניתן להזין או לעדכן בלשונית "התאוששות"</div>
+    </div>
+    <div class="card">
+      <h3>Readiness היום</h3>
+      <div class="kpi">
+        <div>
+          <div class="tags">
+            <span class="tag ${rdy>=70?'ok':rdy>=40?'warn':'bad'}">ציון: <b>${rdy}</b>/100</span>
+            <span class="tag">בסיס HRV: ${m.baseline.hrvMs} מ"ש</span>
+            <span class="tag">בסיס RHR: ${m.baseline.rhr} bpm</span>
+          </div>
+          <div class="muted" style="margin-top:8px">ציון מחושב מקומי על פי HRV↑ ור"מ↓ (אינדיקציה בלבד)</div>
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <div class="muted">Zone‑2 משוער לפי דופק מנוחה: <b>${hrZone2(m.rhr)}</b></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>התקדמות שבועית</h3>
+      <label>דקות פעילות שבוצעו השבוע: <b>${doneMin}</b> / ${goal}</label>
+      <progress max="100" value="${pct}"></progress>
+      <div class="tags" style="margin-top:8px">
+        <span class="tag">יעד AHA/ACSM: 150 דק' / 2 ימי כוח</span>
+        <span class="tag">נוכחי: ${pct}%</span>
+      </div>
+      <div class="foot">המלצות פעילות על פי AHA/CDC/ACSM.</div>
+    </div>
+    <div class="card">
+      <h3>יומן אימונים מהיר</h3>
+      <form id="quickForm" class="two">
+        <select name="type" required>
+          <option value="אירובי קל">אירובי קל</option>
+          <option value="עצים / אינטרוולים">עצים / אינטרוולים</option>
+          <option value="כוח – גוף עליון">כוח – גוף עליון</option>
+          <option value="כוח – גוף תחתון">כוח – גוף תחתון</option>
+          <option value="יוגה/ניידות">יוגה/ניידות</option>
+        </select>
+        <input type="number" name="duration" min="5" max="240" value="30" placeholder="משך (דק')"/>
+        <input name="notes" placeholder="הערות (אופציונלי)" />
+        <button class="primary">הוסף</button>
+      </form>
+      <div class="list" id="quickList"></div>
+    </div>
+  </div>`
+}
+
+function bindQuickForm(){
+  const f=$('#quickForm');
+  const list=$('#quickList');
+  f.onsubmit=(e)=>{e.preventDefault();
+    const fd=new FormData(f);
+    const item={id:crypto.randomUUID(), date:new Date().toISOString(), type:fd.get('type'), duration:+fd.get('duration')||0, notes:fd.get('notes')||''};
+    state.workouts.unshift(item); db.write(state); render();
+  };
+  renderList();
+  function renderList(){
+    list.innerHTML = state.workouts.slice(0,6).map(w=>`<div class="row"><div><b>${w.type}</b><br><small>${new Date(w.date).toLocaleString()}</small></div><div>${w.duration} דק׳</div></div>`).join('')||'<div class="muted">אין רשומות עדיין</div>';
+  }
+}
+
+function viewTrain(){
+  const weekMin = state.workouts.filter(w=>isThisWeek(w.date)).reduce((s,w)=>s+(+w.duration||0),0);
+  return `
+  <div class="grid">
+    <div class="card">
+      <h3>תכנית שבועית מומלצת</h3>
+      <ul class="muted">
+        <li>2× אימוני כוח (כל הגוף או חלוקה עליון/תחתון)</li>
+        <li>1× אימון עצים/אינטרוולים (שיפור VO₂max)</li>
+        <li>1–2× סשנים אירוביים קלים / Zone‑2</li>
+      </ul>
+      <div class="tags"><span class="tag">יעד דק׳ שבועי: ${state.goals.weeklyMinutes}</span><span class="tag">בוצע: ${weekMin}</span></div>
+    </div>
+    <div class="card">
+      <h3>הוספת אימון</h3>
+      <form id="wform">
+        <label>סוג</label>
+        <select name="type" required>
+          <option value="אירובי קל">אירובי קל</option>
+          <option value="Zone‑2">Zone‑2</option>
+          <option value="עצים / אינטרוולים">עצים / אינטרוולים</option>
+          <option value="טמפו">טמפו</option>
+          <option value="כוח – גוף מלא">כוח – גוף מלא</option>
+          <option value="כוח – פלג עליון">כוח – פלג עליון</option>
+          <option value="כוח – פלג תחתון">כוח – פלג תחתון</option>
+          <option value="יוגה/ניידות">יוגה/ניידות</option>
+        </select>
+        <label>משך (דק׳)</label>
+        <input type="number" name="duration" min="5" max="240" value="45" />
+        <label>עצימות (RPE 1–10)</label>
+        <input type="number" name="intensity" min="1" max="10" value="6" />
+        <label>הערות</label>
+        <textarea name="notes" rows="2" placeholder="תרגילים, סטים/חזרות, מסלול וכו׳"></textarea>
+        <div class="two"><button class="primary">שמור אימון</button><button type="button" id="clearW">נקה יומן</button></div>
+      </form>
+    </div>
+    <div class="card">
+      <h3>יומן אימונים</h3>
+      <div class="list" id="wlist"></div>
+    </div>
+  </div>`
+}
+
+function bindTrain(){
+  const f=$('#wform'); const list=$('#wlist');
+  f.onsubmit=(e)=>{e.preventDefault(); const fd=new FormData(f);
+    const w={ id:crypto.randomUUID(), date:new Date().toISOString(), type:fd.get('type'), duration:+fd.get('duration')||0, intensity:+fd.get('intensity')||0, notes:fd.get('notes')||''};
+    state.workouts.unshift(w); db.write(state); render(); };
+  $('#clearW').onclick=()=>{ if(confirm('למחוק את כל האימונים?')){ state.workouts=[]; db.write(state); render(); } };
+  renderList();
+  function renderList(){ list.innerHTML = state.workouts.map(w=>`<div class="row"><div><b>${w.type}</b><br><small>${new Date(w.date).toLocaleString()}</small><br><small class="muted">RPE ${w.intensity}</small></div><div>${w.duration} דק׳</div></div>`).join('') || '<div class="muted">אין אימונים שמורים</div>'; }
+}
+
+function viewRecovery(){
+  const m=state.metrics;
+  return `
+  <div class="grid">
+    <div class="card">
+      <h3>מדדים יומיים</h3>
+      <form id="mform">
+        <div class="two">
+          <div><label>HRV (SDNN, מ"ש)</label><input type="number" step="1" name="hrv" value="${m.hrvMs}"></div>
+          <div><label>דופק מנוחה (bpm)</label><input type="number" step="1" name="rhr" value="${m.rhr}"></div>
+          <div><label>שינה (דק׳)</label><input type="number" step="1" name="sleep" value="${m.sleepMin}"></div>
+          <div><label>צעדים</label><input type="number" step="1" name="steps" value="${m.steps}"></div>
+        </div>
+        <div class="two">
+          <div><label>VO₂max (משוער)</label><input type="number" step="1" name="vo2" value="${m.vo2}"></div>
+          <div><label>מסה (ק"ג)</label><input type="number" step="0.1" name="mass" value="${m.bodyMassKg}"></div>
+        </div>
+        <h4>בסיס להשוואה</h4>
+        <div class="two">
+          <div><label>HRV בסיס (מ"ש)</label><input type="number" step="1" name="bhrv" value="${m.baseline.hrvMs}"></div>
+          <div><label>RHR בסיס (bpm)</label><input type="number" step="1" name="brhr" value="${m.baseline.rhr}"></div>
+        </div>
+        <div class="two" style="margin-top:10px"><button class="primary">שמור</button><button type="button" id="resetBase">אפס לבסיס מהערכים הנוכחיים</button></div>
+      </form>
+    </div>
+    <div class="card">
+      <h3>Readiness</h3>
+      <div class="kpi"><div>ציון היום</div><b>${readinessScore(m,m.baseline)}</b></div>
+      <div class="foot">HRV נמדד כ‑SDNN ב‑HealthKit; זהו מדד שימושי אך אינו אבחנתי.</div>
+    </div>
+  </div>`
+}
+
+function bindRecovery(){
+  const f=$('#mform'); $('#resetBase').onclick=()=>{ state.metrics.baseline={hrvMs: state.metrics.hrvMs, rhr: state.metrics.rhr}; db.write(state); render(); }
+  f.onsubmit=(e)=>{e.preventDefault(); const fd=new FormData(f); const m=state.metrics; m.hrvMs=+fd.get('hrv'); m.rhr=+fd.get('rhr'); m.sleepMin=+fd.get('sleep'); m.steps=+fd.get('steps'); m.vo2=+fd.get('vo2'); m.bodyMassKg=+fd.get('mass'); m.baseline.hrvMs=+fd.get('bhrv'); m.baseline.rhr=+fd.get('brhr'); db.write(state); render(); };
+}
+
+function viewNutrition(){
+  const kg=state.metrics.bodyMassKg; const perKg=state.nutrition.proteinPerKg; const target=Math.round(kg*perKg);
+  return `
+  <div class="grid">
+    <div class="card">
+      <h3>מחשבון חלבון</h3>
+      <div class="two">
+        <div><label>מסה (ק"ג)</label><input type="number" id="kg" value="${kg}" step="0.1"></div>
+        <div><label>גרם לק"ג</label><input type="number" id="ppk" value="${perKg}" step="0.1"></div>
+      </div>
+      <div class="kpi" style="margin-top:10px"><div>יעד יומי</div><b id="pOut">${target} גרם</b></div>
+      <div class="foot">ברירת מחדל 1.6 ג'/ק"ג/יום להיפרטרופיה.</div>
+    </div>
+    <div class="card">
+      <h3>רישום צריכת חלבון</h3>
+      <form id="pform" class="two">
+        <input type="text" name="food" placeholder="מה אכלת?" required>
+        <input type="number" name="g" placeholder="גרם חלבון" min="0" step="1" required>
+        <button class="primary">הוסף</button>
+      </form>
+      <div class="list" id="plist"></div>
+    </div>
+  </div>`
+}
+function bindNutrition(){
+  const kgI=$('#kg'), ppk=$('#ppk'), out=$('#pOut');
+  function recalc(){ const t=Math.round((+kgI.value||0)*(+ppk.value||0)); out.textContent = t+' גרם'; state.metrics.bodyMassKg=+kgI.value||state.metrics.bodyMassKg; state.nutrition.proteinPerKg=+ppk.value||state.nutrition.proteinPerKg; db.write(state); }
+  kgI.oninput=ppk.oninput=recalc;
+  const list=$('#plist'); const f=$('#pform');
+  f.onsubmit=(e)=>{e.preventDefault(); const fd=new FormData(f); state.nutrition.lastIntake.unshift({t:new Date().toISOString(), food:fd.get('food'), g:+fd.get('g')}); db.write(state); render(); };
+  renderList();
+  function renderList(){ list.innerHTML = state.nutrition.lastIntake.map(i=>`<div class="row"><div><b>${i.food}</b><br><small>${new Date(i.t).toLocaleString()}</small></div><div>${i.g} ג׳</div></div>`).join('') || '<div class="muted">אין רשומות</div>'; }
+}
+
+function viewFast(){
+  const f=state.fast; const active=f.active; const now=Date.now();
+  const elapsed = active? Math.max(0, now - new Date(f.start).getTime()) : 0;
+  const hours = Math.floor(elapsed/3.6e6); const mins = Math.floor((elapsed%3.6e6)/6e4);
+  return `
+  <div class="grid">
+    <div class="card">
+      <h3>טיימר צום (IF)</h3>
+      <div class="kpi"><div>${active? 'זמן שחלף': 'מוכן להתחיל'} </div><b>${active? hours+"ש "+mins+"ד": '—'}</b></div>
+      <div class="two" style="margin-top:10px">
+        <input type="number" id="targetH" value="${f.targetHours}" min="8" max="24" />
+        <button id="toggleFast" class="primary">${active? 'סיים צום' : 'התחל צום'}</button>
+      </div>
+      <div class="foot">למטרות מעקב בלבד; ההשפעות תלויות מאזן קלורי והתנהגות.</div>
+    </div>
+  </div>`
+}
+function bindFast(){
+  $('#targetH').oninput=(e)=>{ state.fast.targetHours=+e.target.value; db.write(state); };
+  $('#toggleFast').onclick=()=>{ if(state.fast.active){ state.fast.active=false; } else { state.fast.active=true; state.fast.start=new Date().toISOString(); } db.write(state); render(); };
+}
+
+function viewExport(){
+  return `
+  <div class="grid">
+    <div class="card">
+      <h3>גיבוי/ייצוא</h3>
+      <button id="btnExp" class="primary">הורד קובץ JSON</button>
+      <div class="foot">הנתונים נשמרים מקומית (localStorage) וניתנים לגיבוי לקובץ.</div>
+    </div>
+    <div class="card">
+      <h3>ייבוא</h3>
+      <input type="file" id="fileIn" accept="application/json" />
+      <div class="foot">אפשר גם שיתוף כקובץ למכשיר הנייד (Web Share) בלשונית "סנכרון".</div>
+    </div>
+  </div>`
+}
+function bindExport(){
+  $('#btnExp').onclick=()=>{
+    const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='biohack-fit-backup.json'; a.click(); URL.revokeObjectURL(a.href);
+  };
+  $('#fileIn').onchange=(e)=>{
+    const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ try{ const data=JSON.parse(r.result); Object.assign(state,data); db.write(state); render(); }catch(err){ alert('קובץ לא תקין'); } }; r.readAsText(f);
+  };
+}
+
+// ===== התאמה אישית =====
+function viewSettings(){
+  return `
+  <div class="grid">
+    <div class="card">
+      <h3>יעדים והעדפות</h3>
+      <div class="two">
+        <div><label>יעד דקות שבועי</label><input type="number" id="goalMin" value="${state.goals.weeklyMinutes}"></div>
+        <div><label>ימי כוח לשבוע</label><input type="number" id="goalStrength" value="${state.goals.strengthDays}"></div>
+      </div>
+      <div class="two" style="margin-top:8px">
+        <div><label>דקות עצים/שבוע</label><input type="number" id="vigMin" value="${state.goals.vigorousMinutes}"></div>
+        <div><label>ערכת צבע (כהה/בהיר)</label>
+          <select id="themeSel">
+            <option value="dark">כהה (ברירת מחדל)</option>
+            <option value="light">בהיר</option>
+          </select>
+        </div>
+      </div>
+      <div class="two" style="margin-top:8px">
+        <div><label>גרם חלבון/ק"ג</label><input type="number" id="protKg" step="0.1" value="${state.nutrition.proteinPerKg}"></div>
+        <div><label>צום יעד (ש׳)</label><input type="number" id="fastH" min="8" max="24" value="${state.fast.targetHours}"></div>
+      </div>
+      <div class="two" style="margin-top:12px"><button class="primary" id="savePrefs">שמור</button><button id="notifBtn">הפעל התראות מקומיות</button></div>
+      <div class="foot">התראות דורשות הרשאה בדפדפן. ניתן לבטל בכל עת בהגדרות המכשיר/הדפדפן.</div>
+    </div>
+    <div class="card">
+      <h3>אוטומציה חכמה בזמן אמת</h3>
+      <div class="muted">כשה‑Readiness נמוך (&lt;40) נציע להמיר אימון עצים להליכה/יוגה; אם עד יום חמישי הושגו &lt;50% מהיעד השבועי – נודג׳ להוספת הליכה קצרה.</div>
+      <div class="tags" id="smartNow" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <h3>בדיקות (Self‑tests)</h3>
+      <details class="test" open>
+        <summary>תוצאות אחרונות</summary>
+        <div id="testResults" class="list" style="margin-top:8px"></div>
+      </details>
+    </div>
+  </div>`
+}
+function bindSettings(){
+  // שמירת העדפות
+  $('#savePrefs').onclick=()=>{
+    state.goals.weeklyMinutes=+$('#goalMin').value||state.goals.weeklyMinutes;
+    state.goals.strengthDays=+$('#goalStrength').value||state.goals.strengthDays;
+    state.goals.vigorousMinutes=+$('#vigMin').value||state.goals.vigorousMinutes;
+    state.nutrition.proteinPerKg=+$('#protKg').value||state.nutrition.proteinPerKg;
+    state.fast.targetHours=+$('#fastH').value||state.fast.targetHours;
+    const theme=$('#themeSel').value; document.body.dataset.theme=theme; state.ui.theme = theme; db.write(state); alert('נשמר');
+  };
+  // התראות מקומיות
+  $('#notifBtn').onclick=async()=>{
+    try{
+      const perm = await Notification.requestPermission();
+      if(perm==='granted'){
+        new Notification('✅ התראות הופעלו', {body:'נקפיץ תזכורות ליעדים ולאימונים'});
+      } else alert('לא ניתן להתיר התראות: '+perm);
+    }catch(e){ alert('הדפדפן לא תומך בהתראות'); }
+  };
+  // עדכון מאמן חכם + בדיקות
+  smartCoachTick();
+  const results = runTests();
+  const el = $('#testResults');
+  if(el){ el.innerHTML = results.map(r=>`<div class="row"><div><b>${r.name}</b><br><small class="muted">${r.details}</small></div><div class="pill" style="color:${r.pass?'#9ff2c3':'#ffacac'}">${r.pass?'PASS':'FAIL'}</div></div>`).join(''); }
+}
+
+// ===== מאמן חכם בזמן אמת =====
+function smartCoachTick(){
+  const m = state.metrics; const rdy = readinessScore(m, m.baseline);
+  const weekMin = state.workouts.filter(w=>isThisWeek(w.date)).reduce((s,w)=>s+(+w.duration||0),0);
+  const items = [];
+  if(rdy < 40){ items.push('⚠️ Readiness נמוך: שקול להמיר אימון עצים ליוגה/הליכה (20–30 דק׳)'); }
+  const day = new Date().getDay(); // 0=Sunday
+  const thursday = 4; if(day >= thursday && weekMin < state.goals.weeklyMinutes*0.5){ items.push('🚶 הוסף 15–20 דק׳ הליכה כדי להתקרב ליעד השבועי'); }
+  const c = $('#smartNow'); if(c){ c.innerHTML = items.map(t=>`<span class="tag">${t}</span>`).join('') || '<span class="muted">אין הצעות כרגע – המשך כך! ✅</span>'; }
+  return items; // מאפשר בדיקה
+}
+
+// ===== סנכרון לטלפון / PWA =====
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt', (e)=>{ e.preventDefault(); deferredPrompt=e; });
+
+function viewSync(){
+  const support = {
+    https: location.protocol==='https:' || location.hostname==='localhost',
+    swApi: 'serviceWorker' in navigator,
+    notif: 'Notification' in window,
+    share: 'share' in navigator,
+    bgSyncApi: 'SyncManager' in window
+  };
+  return `
+  <div class="grid">
+    <div class="card">
+      <h3>התקנה כאפליקציה (PWA)</h3>
+      <p class="muted">בסביבת CODEX/סנדבוקס אין Service Worker, אך ניתן להוסיף למסך הבית (בחלק מהדפדפנים) וליהנות מהתראות מקומיות.</p>
+      <div class="two"><button id="installBtn" class="primary">התקן ב-device</button><button id="openShare">שתף גיבוי</button></div>
+      <div class="foot">מצב: HTTPS=${support.https?'✅':'❌'} · SW API=${support.swApi?'✅':'❌'} · BG Sync API=${support.bgSyncApi?'✅':'❌'} · Notifications=${support.notif?'✅':'❌'} · Web Share=${support.share?'✅':'❌'}</div>
+    </div>
+    <div class="card">
+      <h3>סנכרון חכם</h3>
+      <p class="muted">ל‑Background Sync אמיתי נדרש Service Worker (לא נתמך כאן). בעת פריסה אמיתית, הנח קובץ <code>sw.js</code> בשורש האתר ורשום אותו עם נתיב יחסי (לא blob:).</p>
+      <div class="two"><button id="bgSyncBtn">רשום משימת Background Sync</button><button id="testNotif">בדיקת התראה</button></div>
+      <div class="foot">כעת הכפתור יראה הודעת מגבלה במקום לנסות לרשום SW.</div>
+    </div>
+  </div>`
+}
+function bindSync(){
+  $('#installBtn').onclick=async()=>{ if(deferredPrompt){ deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; } else alert('אם לא הופיעה הצעה: השתמש/י ב"הוסף למסך הבית" בדפדפן'); };
+  $('#openShare').onclick=async()=>{
+    const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+    if(navigator.share && navigator.canShare?.({files:[new File([blob], 'biohack-fit-backup.json', {type:'application/json'})]})){
+      const f=new File([blob], 'biohack-fit-backup.json', {type:'application/json'});
+      await navigator.share({title:'BioHack Fit', text:'גיבוי נתונים', files:[f]});
+    } else alert('שיתוף קבצים אינו נתמך בדפדפן זה');
+  };
+  $('#bgSyncBtn').onclick=()=>{ if(!canRegisterSW()){ alert('Background Sync לא זמין כאן (אין Service Worker). בהפקה אמיתית רשום sw.js ב‑HTTPS.'); } };
+  $('#testNotif').onclick=()=>{ try{ new Notification('🔔 בדיקת התראה', {body:'זהו טסט מה‑BioHack Fit'}); }catch(e){ alert('הפעל הרשאת התראות בלשונית התאמה אישית'); } };
+}
+
+// ===== Router =====
+function route(id){
+  const v=$('#view');
+  if(id==='dash'){ v.innerHTML = viewDash(); bindQuickForm(); }
+  if(id==='train'){ v.innerHTML = viewTrain(); bindTrain(); }
+  if(id==='recovery'){ v.innerHTML = viewRecovery(); bindRecovery(); }
+  if(id==='nutrition'){ v.innerHTML = viewNutrition(); bindNutrition(); }
+  if(id==='fast'){ v.innerHTML = viewFast(); bindFast(); }
+  if(id==='export'){ v.innerHTML = viewExport(); bindExport(); }
+  if(id==='settings'){ v.innerHTML = viewSettings(); bindSettings(); }
+  if(id==='sync'){ v.innerHTML = viewSync(); bindSync(); }
+}
+
+function render(){
+  const activeTab = $('.tab.active')?.textContent ? routes.find(r=>r.name===$('.tab.active').textContent).id : 'dash';
+  renderTabs(activeTab);
+  route(activeTab);
+}
+
+// ===== (Removed) Service Worker dynamic registration =====
+// בעבר נרשם SW באמצעות blob: — זה אינו נתמך. השארנו כאן הסבר בלבד.
+// בהפקה: navigator.serviceWorker.register('/sw.js') כאשר הקובץ קיים באותה מחיצה על HTTPS.
+
+// ===== Tests =====
+function runTests(){
+  const results = [];
+  // Test 1: clamp boundaries
+  results.push({name:'clamp: boundaries', pass: clamp(-5,0,10)===0 && clamp(15,0,10)===10, details:`clamp(-5,0,10)=${clamp(-5,0,10)}, clamp(15,0,10)=${clamp(15,0,10)}`});
+  // Test 2: readiness baseline ~ 50
+  const r = readinessScore({hrvMs:40,rhr:60},{hrvMs:40,rhr:60});
+  results.push({name:'readiness baseline ≈50', pass: r>=45 && r<=55, details:`score=${r}`});
+  // Test 3: isThisWeek
+  results.push({name:'isThisWeek(now)=true', pass: isThisWeek(new Date().toISOString())===true, details:'current date'});
+  results.push({name:'isThisWeek(1999-01-01)=false', pass: isThisWeek('1999-01-01T00:00:00Z')===false, details:'old date'});
+  // Test 4: tabs render length
+  try{
+    renderTabs('dash'); const len = $$('#tabs .tab').length; results.push({name:'tabs length', pass: len===routes.length, details:`len=${len}, routes=${routes.length}`});
+  }catch(e){ results.push({name:'tabs length', pass:false, details:e.message}); }
+  // Test 5: route renders view
+  try{
+    route('dash'); const has = $('#view').innerHTML.includes('מדדי היום');
+    results.push({name:'route("dash") renders', pass: has, details:`contains KPI=${has}`});
+  }catch(e){ results.push({name:'route("dash") renders', pass:false, details:e.message}); }
+  // Test 6: db.patch merges
+  try{
+    db.patch({__testFlag:true}); const ok = db.read().__testFlag===true; results.push({name:'db.patch merge', pass: ok, details:`flag=${ok}`}); delete state.__testFlag; db.write(state);
+  }catch(e){ results.push({name:'db.patch merge', pass:false, details:e.message}); }
+  // Test 7: smart coach suggestions API
+  try{
+    const old = JSON.parse(JSON.stringify(state.metrics));
+    state.metrics.hrvMs = 20; state.metrics.rhr = 80; const sugg = smartCoachTick();
+    results.push({name:'smartCoachTick returns suggestions', pass: Array.isArray(sugg), details:`count=${sugg.length}`});
+    state.metrics = old; db.write(state);
+  }catch(e){ results.push({name:'smartCoachTick returns suggestions', pass:false, details:e.message}); }
+  // Test 8: canRegisterSW guard (should be false in CODEX)
+  try{
+    const guard = canRegisterSW();
+    results.push({name:'canRegisterSW() is false in this env', pass: guard===false, details:`canRegisterSW=${guard}`});
+  }catch(e){ results.push({name:'canRegisterSW() check', pass:false, details:e.message}); }
+
+  console.table(results.map(r=>({name:r.name, pass:r.pass, details:r.details})));
+  return results;
+}
+
+// ===== Boot =====
+renderTabs('dash'); route('dash');
+</script>
+</body>
+</html>
